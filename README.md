@@ -4,3 +4,4 @@
 - Order By
 - Counts and Distinct Valves
 - Identify Duplicate Records
+- Summary Statistics

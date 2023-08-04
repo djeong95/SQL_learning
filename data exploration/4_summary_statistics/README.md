@@ -462,3 +462,136 @@ FROM stats;
 | measure | minimum_value | maximum_value | mean_value | median_value | mode_value | standard_deviation | variance_value        |
 |---------|--------------:|--------------:|-----------:|-------------:|-----------:|-------------------:|----------------------:|
 | weight  |          0.00 |   39642120.00 |   28786.85 |        75.98 |      68.49 |         1062759.55 | 1129457862383.41      |
+
+However - again we need to ask ourselves: WHAT DOES THIS REALLY MEAN??????
+
+We will continue pondering this big question in the following tutorial!
+
+# Exercises
+
+For this tutorial we have focused on the filtered records `WHERE measure = 'weight'` - for these 3 exercise questions, we’ll look at some of the other measure values!
+
+## Average, Median & Mode
+
+One popular method to detect an uneven distribution in the dataset is to compare the average, mode and median values - this statistical property is known as a skew in the distribution.
+
+<img width="427" alt="image" src="https://github.com/djeong95/Yelp_review_datapipeline/assets/102641321/85f715a3-f8cd-4102-acd3-bfe1109702e1">
+
+1. What is the average, median and mode values of blood glucose values to 2 decimal places?
+
+```sql
+WITH mode AS (
+  SELECT value AS mode_value
+  FROM (
+    SELECT 
+      measure_value AS value, 
+      COUNT(*) AS count
+    FROM `health.user_logs`
+    WHERE measure = 'blood_glucose'
+    GROUP BY measure_value
+    ORDER BY count DESC
+    LIMIT 1
+  )
+)
+
+SELECT 
+  ROUND(AVG(measure_value), 2) AS mean_value,
+  ROUND(APPROX_QUANTILES(measure_value, 100)[OFFSET(50)], 2) AS median_value,
+  ROUND((SELECT mode_value FROM mode), 2) AS mode_value
+FROM `health.user_logs`
+WHERE measure = 'blood_glucose';
+```
+| average_value | median_value | mode_value |
+|--------------:|-------------:|-----------:|
+|        177.35 |       154.00 |     401.00 |
+
+## Most Frequent Values
+
+2. What is the most frequently occuring `measure_value` value for all blood glucose measurements?
+
+Also have a think about why this value looks really similar as the `MODE` value above!
+
+```sql
+SELECT CAST(value AS INTEGER) AS measure_value, count AS frequency
+FROM (
+    SELECT 
+      measure_value AS value, 
+      COUNT(*) AS count
+    FROM `health.user_logs`
+    WHERE measure = 'blood_glucose'
+    GROUP BY measure_value
+    ORDER BY count DESC
+    LIMIT 10
+  )
+```
+| measure_value | frequency |
+|-------------- |---------- |
+|           401 |       433 |
+|           117 |       350 |
+|           118 |       307 |
+|           115 |       290 |
+|           126 |       290 |
+|           122 |       289 |
+|           108 |       287 |
+|           123 |       283 |
+|           125 |       282 |
+|           120 |       281 |
+
+## Pearson Coefficients of Skewness
+
+3. Calculate the 2 Pearson Coefficient of Skewness for blood glucose measures given the following formulas:
+
+$$Coefficient1:ModeSkewness= \frac{Mean−Mode}{StandardDeviation}$$
+
+$$Coefficient2:MedianSkewness=3∗\frac{Mean−Median}{StandardDeviation}$$
+
+You don’t need to understand exactly what these skewness terms mean - but just know that they are a quantitative measure of how lopsided a certain distribution is.
+
+In particularly this is really really useful when you need to find out whether a specific table index has a “skew” in the values - leading to disproportionate allocation of data points to specific buckets or nodes!
+
+```sql
+WITH stats AS (
+  SELECT
+    ROUND(AVG(measure_value), 2) AS mean_value,
+    ROUND(STDDEV(measure_value), 2) AS standard_dev_value,
+    APPROX_QUANTILES(measure_value, 100)[OFFSET(50)] AS median_value
+  FROM `health.user_logs`
+  WHERE measure = 'blood_glucose'
+),
+
+mode AS (
+  SELECT value AS mode_value
+  FROM (
+    SELECT 
+      measure_value AS value, 
+      COUNT(*) AS count
+    FROM `health.user_logs`
+    WHERE measure = 'blood_glucose'
+    GROUP BY measure_value
+    ORDER BY count DESC
+    LIMIT 1
+  )
+)
+
+SELECT
+  (stats.mean_value - mode.mode_value)/(stats.standard_dev_value) AS pearson_corr_1,
+  3* (stats.mean_value - stats.median_value)/(stats.standard_dev_value) AS pearson_corr_2,
+FROM stats, mode;
+```
+
+| pearson_corr_1 | pearson_corr_2 |
+|--------------- |--------------- |
+| -0.19324890033272553 | 0.06052397102651671 |
+
+# Conclusion
+
+Congratulations on completing this tutorial on Summary Statistics! We have successfully covered the following concepts:
+
+- Central location statistics including: mean, median and mode
+- Simple algorithm approach to calculate the median and mode
+- How to implement Ordered Set Aggregate Functions to calculate the 50th percentile value of a dataset (in other words - the median)
+- Spread statistics including: min, max, range, standard deviation and variance
+- Basic understanding of the Normal Distribution, The Empirical Rule, confidence intervals and their relation to the mean and standard deviation
+- `WHERE` filters to narrow down a set of data based off a certain condition `measure = 'weight'`
+- Using `ROUND` to limit numeric outputs to 2 decimal places for nicer presentation
+- Mathematical equations for mean and standard deviation
