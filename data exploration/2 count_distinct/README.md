@@ -1,3 +1,4 @@
+# Record Counts & Distinct Values
 
 ## Column Aliases
 ```sql

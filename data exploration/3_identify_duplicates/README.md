@@ -415,7 +415,220 @@ By now you are probably sick of this talk about duplicates and how to deal with 
 Let’s think back to the context of our dataset here.
 
 > For context, this real world messy dataset captures data taken from individuals logging their health measurements via an online portal throughout the day.
-
-> For example, multiple measurements can be taken on the same day at different times, but you may notice this information is missing as the log_date column does not show timestamp values! 
-
+>
+> For example, multiple measurements can be taken on the same day at different times, but you may notice this information is missing as the log_date column does not show timestamp values!
+>
 > Welcome to the real world of messy datasets :)
+
+That part about multiple measurements could be critical in the approach we wish to take with these duplicates.
+
+Sometimes what we, as data analytics professionals or SQL developers, perceive as duplicates might actually not be duplicates after all - they could just be valid data points! I hope this example drills home the main point about duplicate data points - we must **always** think critically about the data that we have and what it really represents in terms of actual behaviour or processes that create them!
+
+This is what it means to develop analytical thinking skills in my humble opinion!
+
+## Exercises
+
+### Highest Duplicate
+
+1. Which `id` value has the most number of duplicate records in the `health.user_logs` table?
+
+```sql
+WITH groupby_counts AS (
+  SELECT id,
+    log_date,
+    measure,
+    measure_value,
+    systolic,
+    diastolic,
+    COUNT(*) as frequency
+  FROM `health.user_logs`
+  GROUP BY id,
+    log_date,
+    measure,
+    measure_value,
+    systolic,
+    diastolic
+)
+SELECT id,
+  SUM(frequency) AS total_duplicate_rows
+FROM groupby_counts
+GROUP BY id
+HAVING total_duplicate_rows > 1
+ORDER BY total_duplicate_rows DESC;
+```
+**054250c692e07a9fa9e62e345231df4b54ff435d: 22325**
+
+### Second Highest Duplicate
+2. Which `log_date` value had the most duplicate records after removing the max duplicate `id` value from question 1?
+
+```sql
+WITH groupby_counts AS (
+  SELECT id,
+    log_date,
+    measure,
+    measure_value,
+    systolic,
+    diastolic,
+    COUNT(*) as frequency
+  FROM `health.user_logs`
+  GROUP BY id,
+    log_date,
+    measure,
+    measure_value,
+    systolic,
+    diastolic
+)
+SELECT log_date,
+  SUM(frequency) AS total_duplicate_rows
+FROM groupby_counts
+WHERE id != "054250c692e07a9fa9e62e345231df4b54ff435d"
+GROUP BY log_date
+HAVING total_duplicate_rows > 1
+ORDER BY total_duplicate_rows DESC;
+```
+
+**2019-12-11: 141**
+
+### Highest Occuring Value
+
+3. Which `measure_value` had the most occurences in the `health.user_logs` value when `measure = 'weight'`?
+
+```sql
+SELECT measure_value,
+  COUNT(*) AS frequency
+FROM `health.user_logs`
+WHERE measure = "weight"
+GROUP BY measure_value
+ORDER BY frequency DESC;
+```
+
+**68.49244787: 109**
+
+### Single & Total Duplicated Rows
+
+4. How many single duplicated rows exist when `measure = 'blood_pressure'` in the `health.user_logs`? How about the total number of duplicate records in the same table?
+
+```sql
+WITH groupby_counts AS (
+  SELECT id,
+    log_date,
+    measure,
+    measure_value,
+    systolic,
+    diastolic,
+    COUNT(*) as frequency
+  FROM `health.user_logs`
+  GROUP BY id,
+    log_date,
+    measure,
+    measure_value,
+    systolic,
+    diastolic
+)
+SELECT
+  COUNT(*) AS single_duplicate_rows,
+  SUM(frequency) as total_duplicate_records
+FROM `groupby_counts`
+WHERE measure = "blood_pressure" AND groupby_counts.frequency > 1
+```
+**single_duplicate_rows: 147**
+
+**total_duplicate_records: 301**
+
+### Percentage of Table Records
+5. What percentage of records `measure_value = 0` when `measure = 'blood_pressure'` in the `health.user_logs` table? How many records are there also for this same condition?
+
+```sql
+WITH all_measure_values AS (
+  SELECT
+    measure_value,
+    COUNT(*) AS total_records,
+    SUM(COUNT(*)) OVER () AS overall_total
+  FROM health.user_logs
+  WHERE measure = 'blood_pressure'
+  GROUP BY 1
+)
+SELECT
+  measure_value,
+  total_records,
+  overall_total,
+  ROUND(100 * CAST(total_records AS DECIMAL) / overall_total, 2) AS percentage
+FROM all_measure_values
+WHERE measure_value = 0;
+```
+| measure_value | total_records | overall_total | percentage |
+|--------------:|--------------:|--------------:|-----------:|
+|           0   |           562 |          2417 |      23.25 |
+
+Bonus question - what happens when you move the `measure_value = 0` to different places within the query above?
+
+> If you move `measure_value = 0` to differenet places within the query above, you might filter out for `measure_value = 0` earlier, hence you would not get the same percentage result and actually get 100\% for the percentage since you already filtered only for results with `measure_value = 0`.
+
+
+Extra bonus question - can you figure out a way to implement the same query above without using a window function? (a friendly hint - you will likely need to use a join somewhere…)
+
+```sql
+-- Method 1 - subquery
+WITH all_measured_values AS (SELECT
+    measure_value,
+    COUNT(*) AS total_records,
+  FROM `health.user_logs`
+  WHERE measure = 'blood_pressure'
+  GROUP BY 1),
+
+overall_total_values AS (
+  SELECT
+    SUM(total_records) AS overall_total
+  FROM all_measured_values
+)
+SELECT
+  measure_value,
+  total_records,
+  (SELECT overall_total FROM overall_total_values) AS overall_total,
+  ROUND(100 * CAST(TOTAL_RECORDS AS DECIMAL) / (SELECT overall_total FROM overall_total_values), 2) AS percentage
+FROM all_measured_values
+
+-- Method 2 - cross join
+WITH all_measured_values AS (SELECT
+    measure_value,
+    COUNT(*) AS total_records,
+  FROM `health.user_logs`
+  WHERE measure = 'blood_pressure'
+  GROUP BY 1),
+
+overall_total_values AS (
+  SELECT
+    SUM(total_records) AS overall_total
+  FROM all_measured_values
+)
+SELECT
+  CAST(measure_value AS INT64) AS measure_value,
+  total_records,
+  overall_total,
+  ROUND(100 * CAST(TOTAL_RECORDS AS DECIMAL) / overall_total, 2) AS percentage
+FROM all_measured_values
+CROSS JOIN overall_total_values
+WHERE measure_value = 0;
+
+```
+
+### Percentage of Duplicates
+6. What percentage of records are duplicates in the `health.user_logs` table?
+
+```sql
+WITH deduped_logs AS (
+  SELECT DISTINCT *
+  FROM health.user_logs
+)
+SELECT
+  ROUND(
+    100 * (
+      (SELECT COUNT(*) FROM health.user_logs) -
+      (SELECT COUNT(*) FROM deduped_logs)
+    )::NUMERIC /
+    (SELECT COUNT(*) FROM health.user_logs),
+    2
+  ) AS duplicate_percentage;
+```
+**duplicate_percentage: 29.36**
+
